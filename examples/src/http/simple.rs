@@ -310,7 +310,10 @@ async fn main() {
 
     Server::new(app)
         .stat_tracer(tracer)
-        .run(addr)
+        .run_with_builder_cfg(addr, |mut builder| {
+            builder.max_headers(200);
+            builder
+        })
         .await
         .unwrap();
 }
