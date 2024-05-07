@@ -1,22 +1,23 @@
-use std::net::SocketAddr;
+use std::{future::Future, net::SocketAddr};
 
 use faststr::FastStr;
-use hickory_resolver::{AsyncResolver, Resolver, TokioAsyncResolver};
+use hickory_resolver::{AsyncResolver, TokioAsyncResolver};
 use http::uri::{Scheme, Uri};
 use lazy_static::lazy_static;
+use tokio::runtime::{Handle, Runtime};
 use volo::net::Address;
 
 use super::ClientInner;
 use crate::{
     context::client::CalleeName,
-    error::client::{bad_host_name, bad_scheme, no_address, unreachable_builder_error, Result},
+    error::client::{
+        bad_host_name, bad_scheme, builder_error, no_address, unreachable_builder_error, Result,
+    },
     utils::consts,
 };
 
 lazy_static! {
-    static ref SYNC_RESOLVER: Resolver =
-        Resolver::from_system_conf().expect("failed to init dns resolver");
-    static ref ASYNC_RESOLVER: TokioAsyncResolver =
+    static ref RESOLVER: TokioAsyncResolver =
         AsyncResolver::tokio_from_system_conf().expect("failed to init dns resolver");
 }
 
@@ -92,7 +93,7 @@ impl TargetBuilder {
         match self {
             Self::None => Err(no_address()),
             Self::Address { addr, .. } => Ok(addr),
-            Self::Host { scheme, host, port } => resolve_sync(scheme, &host, port),
+            Self::Host { scheme, host, port } => block_on(resolve(scheme, &host, port))?,
         }
     }
 
@@ -161,20 +162,14 @@ fn prepare_host_and_port(
     Ok((host, port))
 }
 
-fn resolve_sync(scheme: Option<Scheme>, host: &str, port: Option<u16>) -> Result<Address> {
-    let (host, port) = prepare_host_and_port(scheme, host, port)?;
-
-    // The Resolver will try to parse the host as an IP address first, so we don't need
-    // to parse it manually.
-    if let Ok(resp) = SYNC_RESOLVER.lookup_ip(host) {
-        if let Some(addr) = resp.iter().next() {
-            return Ok(Address::Ip(SocketAddr::new(addr, port)));
-        }
+fn block_on<F>(fut: F) -> Result<F::Output>
+where
+    F: Future + Send,
+{
+    let Ok(runtime) = Handle::try_current() else {
+        return Ok(Runtime::new().map_err(builder_error)?.block_on(fut));
     };
-
-    Err(bad_host_name(
-        Uri::try_from(host).map_err(|_| unreachable_builder_error())?,
-    ))
+    Ok(runtime.block_on(fut))
 }
 
 async fn resolve(scheme: Option<Scheme>, host: &str, port: Option<u16>) -> Result<Address> {
@@ -184,7 +179,7 @@ async fn resolve(scheme: Option<Scheme>, host: &str, port: Option<u16>) -> Resul
     //
     // Note that the Resolver will try to parse the host as an IP address first, so we don't need
     // to parse it manually.
-    if let Ok(resp) = ASYNC_RESOLVER.lookup_ip(host).await {
+    if let Ok(resp) = RESOLVER.lookup_ip(host).await {
         if let Some(addr) = resp.iter().next() {
             return Ok(Address::Ip(SocketAddr::new(addr, port)));
         }

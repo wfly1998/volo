@@ -4,7 +4,6 @@ use std::{error::Error, time::Duration};
 
 use faststr::FastStr;
 use http::{
-    header,
     header::{HeaderMap, HeaderName, HeaderValue},
     uri::{PathAndQuery, Scheme},
     Method, Request, Uri, Version,
@@ -89,7 +88,7 @@ impl<'a, S> RequestBuilder<'a, S, Body> {
     {
         let (mut parts, _) = self.request.into_parts();
         parts.headers.insert(
-            header::CONTENT_TYPE,
+            http::header::CONTENT_TYPE,
             mime::APPLICATION_JSON
                 .essence_str()
                 .parse()
@@ -112,7 +111,7 @@ impl<'a, S> RequestBuilder<'a, S, Body> {
     {
         let (mut parts, _) = self.request.into_parts();
         parts.headers.insert(
-            header::CONTENT_TYPE,
+            http::header::CONTENT_TYPE,
             mime::APPLICATION_WWW_FORM_URLENCODED
                 .essence_str()
                 .parse()
